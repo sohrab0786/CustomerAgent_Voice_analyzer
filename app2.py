@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from fastapi import Form, File, UploadFile
 from typing import Dict, Any, List
 import uvicorn
-from audio_processor import process_audio_file, aggregate_results, generate_conclusion
+from audio_processor_old import process_audio_file, aggregate_results, generate_conclusion
 from dotenv import load_dotenv
 load_dotenv()
 st.set_page_config(

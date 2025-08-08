@@ -11,6 +11,7 @@ import yake
 from scipy.fft import fft
 from scipy.signal import butter, lfilter
 from openai import OpenAI
+from openai import AzureOpenAI
 import logging
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,17 +19,29 @@ load_dotenv()
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Set environment variables
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-api_key = os.getenv("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY environment variable is not set. Please set it to your OpenAI API key.")
-# Initialize OpenAI client
-client = OpenAI(api_key=api_key)
 
+import openai
+
+# Load Azure OpenAI credentials
+azure_api_key = os.getenv("AZURE_OPENAI_API_KEY")
+azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+azure_deployment_gpt = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME_GPT")
+
+model_name = "whisper-1"
+deployment_id = "whisper"
+audio_language="en"
+print(azure_api_key, azure_endpoint, azure_deployment_gpt, deployment_id)
+if not all([azure_api_key, azure_endpoint, azure_deployment_gpt, deployment_id]):
+    raise ValueError("Azure OpenAI configuration missing. Ensure AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME_GPT, and AZURE_OPENAI_DEPLOYMENT_NAME_WHISPER are set.")
+
+# Create the AzureOpenAI client once (do this in global scope)
+client = AzureOpenAI(
+    api_key=azure_api_key,
+    api_version="2023-09-01-preview",
+    azure_endpoint=azure_endpoint,
+)
 # Initialize keyword extractor
 kw_extractor = yake.KeywordExtractor(lan="en", n=1, dedupLim=0.9, top=1)
-
-
 def butter_lowpass(cutoff, fs, order=5):
     """Design a lowpass Butterworth filter."""
     nyq = 0.5 * fs
@@ -73,38 +86,34 @@ def split_audio_by_silence(audio_file, min_silence_len=500, silence_thresh=-30):
 
 
 def transcribe_audio(audio_path):
-    """Transcribe audio file using OpenAI Whisper."""
-    logging.info(f"Transcribing audio: {audio_path}")
+    """Use Azure Whisper deployment to transcribe audio."""
     try:
         with open(audio_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file
+            transcript = client.audio.transcriptions.create(
+                file=audio_file,
+                deployment_id="whisper-1",  # ← Use deployment name, not 'model'
+                language="en"
             )
-        text = transcription.text.strip()
-        logging.debug(f"Transcription for {audio_path}: {text}")
-        return text
+        return transcript.text.strip()
     except Exception as e:
-        logging.error(f"Transcription error for {audio_path}: {e}")
+        print(f"[ERROR] Transcription failed: {e}")
         return ""
 
-
 def analyze_sentiment(text):
-    """Analyze sentiment using OpenAI GPT-3.5-turbo."""
+    """Analyze sentiment using Azure OpenAI GPT."""
     if not text or text.strip().isdigit():
         logging.debug(f"No valid text for sentiment analysis: {text}")
         return "NEUTRAL", 0.0
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+        response = openai.ChatCompletion.create(
+            engine=azure_deployment_gpt,
             messages=[
-                {"role": "system",
-                 "content": "You are a sentiment analysis expert. Classify the sentiment of the given text as POSITIVE, NEGATIVE, or NEUTRAL. Return only the sentiment label in uppercase."},
+                {"role": "system", "content": "You are a sentiment analysis expert. Classify the sentiment of the given text as POSITIVE, NEGATIVE, or NEUTRAL. Return only the sentiment label in uppercase."},
                 {"role": "user", "content": text}
             ],
             max_tokens=10
         )
-        sentiment = response.choices[0].message.content.strip().upper()
+        sentiment = response.choices[0].message['content'].strip().upper()
         if sentiment not in ["POSITIVE", "NEGATIVE", "NEUTRAL"]:
             sentiment = "NEUTRAL"
         logging.debug(f"Sentiment for text '{text}': {sentiment}")
@@ -115,21 +124,20 @@ def analyze_sentiment(text):
 
 
 def detect_language_openai(text):
-    """Detect language using OpenAI GPT-3.5-turbo."""
+    """Detect language using Azure OpenAI GPT."""
     if not text or text.strip().isdigit():
         logging.debug(f"No valid text for language detection: {text}")
         return "UNKNOWN"
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+        response = openai.ChatCompletion.create(
+            engine=azure_deployment_gpt,
             messages=[
-                {"role": "system",
-                 "content": "You are a language detection expert. Identify the primary language of the given text. Return only the language name in uppercase (e.g., HINDI, ENGLISH)."},
+                {"role": "system", "content": "You are a language detection expert. Identify the primary language of the given text. Return only the language name in uppercase (e.g., HINDI, ENGLISH)."},
                 {"role": "user", "content": text}
             ],
             max_tokens=10
         )
-        language = response.choices[0].message.content.strip().upper()
+        language = response.choices[0].message['content'].strip().upper()
         logging.debug(f"Language for text '{text}': {language}")
         return language
     except Exception as e:
@@ -137,8 +145,9 @@ def detect_language_openai(text):
         return "UNKNOWN"
 
 
+
 def analyze_tone_openai(transcription, acoustic_features):
-    """Classify tone using OpenAI GPT-3.5-turbo based on transcription and acoustic features."""
+    """Classify tone using Azure OpenAI GPT based on transcription and acoustic features."""
     if not transcription:
         logging.debug("No transcription for tone analysis")
         return "LAZY"
@@ -163,15 +172,15 @@ def analyze_tone_openai(transcription, acoustic_features):
         f"Return only the tone in uppercase (LAZY or ENTHUSIASTIC)."
     )
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+        response = openai.ChatCompletion.create(
+            engine=azure_deployment_gpt,
             messages=[
                 {"role": "system", "content": "You are a tone analysis expert."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=10
         )
-        tone = response.choices[0].message.content.strip().upper()
+        tone = response.choices[0].message['content'].strip().upper()
         if tone not in ["LAZY", "ENTHUSIASTIC"]:
             tone = "LAZY"
         logging.debug(f"Tone for transcription '{transcription}': {tone}")
@@ -179,6 +188,7 @@ def analyze_tone_openai(transcription, acoustic_features):
     except Exception as e:
         logging.error(f"Tone analysis error for transcription '{transcription}': {e}")
         return "LAZY"
+
 
 
 def analyze_acoustic_features(audio_path, transcription):

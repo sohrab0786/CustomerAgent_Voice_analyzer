@@ -5,5 +5,14 @@ Based on the .wav file this project generates transcript line by line and predic
 
 To run this project Follow below steps:
 
-1. 
-2.
+1. git clone ..
+2. cd project directory
+3. python -m venv venv 
+4. .\venv\Scripts\activate
+5. pip install -r requirements.txt
+6. configure .env file
+7. python app2.py 
+
+go to url 
+then upload wav file and click proceed button 
+it will process and generate result 
