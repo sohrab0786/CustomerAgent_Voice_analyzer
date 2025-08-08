@@ -5,8 +5,8 @@ Based on the .wav file this project generates transcript line by line and predic
 
 To run this project Follow below steps:
 
-1. git clone ..
-2. cd project directory
+1. git clone https://github.com/sohrab0786/CustomerAgent_Voice_analyzer.git
+2. cd CustomerAgent_Voice_analyzer
 3. python -m venv venv 
 4. .\venv\Scripts\activate
 5. pip install -r requirements.txt
